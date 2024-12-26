@@ -2,7 +2,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Debug)]
 pub enum Packet {
     // client-server
     Login(String, String),
