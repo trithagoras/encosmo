@@ -10,5 +10,7 @@ pub enum Packet {
     Logout,
 
     // server-client
-    Id(Uuid)
+    Id(Uuid),
+    PlayerConnected(Uuid),
+    PlayerDisconnected(Uuid)
 }

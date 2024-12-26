@@ -26,7 +26,7 @@ impl Connection {
         Connection { id, client_tx, server_rx, server_tx, broadcast_rx: broadcast_rx.resubscribe(), self_rx, self_tx }
     }
 
-    pub async fn start(&mut self, mut client_rx: tcp::OwnedReadHalf) {
+    pub async fn start(&mut self, mut client_rx: tcp::OwnedReadHalf) -> io::Result<()> {
         // fire off read bytes loop
         let (tx, mut rx) = watch::channel(false);
         let server_tx = self.server_tx.clone();
@@ -64,15 +64,15 @@ impl Connection {
             tokio::select! {
                 msg = self.server_rx.recv() => {
                     let msg = msg.unwrap();
-                    self.dispatch(msg).await;
+                    self.dispatch_msg(msg).await?;
                 }
                 msg = self.broadcast_rx.recv() => {
                     let msg = msg.unwrap();
-                    self.dispatch(msg).await;
+                    self.dispatch_msg(msg).await?;
                 }
                 msg = self.self_rx.recv() => {
                     let msg = msg.unwrap();
-                    self.dispatch(msg).await;
+                    self.dispatch_msg(msg).await?;
                 }
                 _ = rx.changed() => {
                     // socket closed
@@ -80,24 +80,37 @@ impl Connection {
                 }
             }
         }
+
+        Ok (())
     }
 
-    async fn dispatch(&mut self, msg: Message) {
+    async fn dispatch_msg(&mut self, msg: Message) -> io::Result<()> {
         match msg {
-            Message::Connected(id) => {},
-            Message::Disconnected(id) => {},
+            Message::Connected(id) => {
+                if id == self.id {
+                    // our own connected message.
+                    self.send_packet(Packet::Id(id)).await?;
+                } else {
+                    self.send_packet(Packet::PlayerConnected(id)).await?;
+                }
+            },
+            Message::Disconnected(id) => {
+                self.send_packet(Packet::PlayerDisconnected(id)).await?;
+            },
             Message::PacketReceived(p) => {
-                self.dispatch_packet(p).await;
+                self.dispatch_packet(p).await?;
             },
             _ => log::warn!("{}: unhandled message received: {:?}", self.id, msg)
         };
+        Ok (())
     }
 
-    async fn dispatch_packet(&mut self, p: Packet) {
+    async fn dispatch_packet(&mut self, p: Packet) -> io::Result<()> {
         match p {
             Packet::Login(username, password) => log::info!("{}: login requested with username and password: {} {}", self.id, username, password),
             _ => {}
-        }
+        };
+        Ok (())
     }
 
     async fn send_packet(&mut self, packet: Packet) -> io::Result<()> {
@@ -106,10 +119,4 @@ impl Connection {
         self.client_tx.write(bytes).await?;
         Ok (())
     }
-
-    // pub async fn receive_message(&mut self, msg: Message) {
-    //     match msg {
-    //         Message
-    //     }
-    // }
 }

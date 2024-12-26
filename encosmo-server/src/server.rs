@@ -44,7 +44,7 @@ impl Server {
         loop {
             let mut lock = server_rx.lock().await;
             let msg = lock.recv().await.unwrap();
-            self.dispatch(msg).await;
+            self.dispatch_msg(msg).await;
         }
     }
 
@@ -64,9 +64,11 @@ impl Server {
         let connections = connections.clone();
 
         spawn(async move {
-            connection.start(client_rx).await;
+            match connection.start(client_rx).await {
+                Err (e) => log::error!("Client {} disconnected with error {}", id, e),
+                _ => log::info!("Player {} has disconnected gracefully.", id)
+            }
             // connection has finished
-            log::info!("Player {} has disconnected.", id);
             connections.lock().await.remove(&id);
         });
 
@@ -76,7 +78,7 @@ impl Server {
         Ok (())
     }
 
-    async fn dispatch(&mut self, msg: Message) {
+    async fn dispatch_msg(&mut self, msg: Message) {
         match msg {
             Message::Connected(_) => {
                 _ = self.broadcast_tx.send(msg);
