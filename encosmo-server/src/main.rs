@@ -3,6 +3,7 @@ use std::io;
 
 mod messages;
 mod packets;
+mod states;
 mod server;
 mod connection;
 

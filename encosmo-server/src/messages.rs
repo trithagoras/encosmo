@@ -8,5 +8,5 @@ use crate::packets::Packet;
 pub enum Message {
     Connected (Uuid),
     Disconnected (Uuid),
-    PacketReceived (Packet),
+    PacketReceived (Packet)
 }

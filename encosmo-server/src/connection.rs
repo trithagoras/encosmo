@@ -1,7 +1,9 @@
-use tokio::{io::{self, AsyncReadExt, AsyncWriteExt}, net::tcp, spawn, sync::{broadcast, mpsc, watch}};
+use std::sync::Arc;
+
+use tokio::{io::{self, AsyncReadExt, AsyncWriteExt}, net::tcp, spawn, sync::{broadcast, mpsc, watch, Mutex}};
 use uuid::Uuid;
 
-use crate::{messages::Message, packets::Packet};
+use crate::{messages::Message, packets::Packet, states::{entry::Entry, state::{State, StateHandler}}};
 
 pub struct Connection {
     id: Uuid,
@@ -10,7 +12,8 @@ pub struct Connection {
     server_tx: mpsc::Sender<Message>,
     broadcast_rx: broadcast::Receiver<Message>,
     self_rx: mpsc::Receiver<Message>,
-    self_tx: mpsc::Sender<Message>
+    self_tx: Arc<Mutex<mpsc::Sender<Message>>>,
+    state: State
 }
 
 impl Connection {
@@ -21,9 +24,15 @@ impl Connection {
         };
         let (server_tx, server_rx) = server_chan;
         let (self_tx, self_rx) = mpsc::channel(100);
+        let state = State::Entry(Entry { conn_id: id });
 
         // resubscribe since likely some messages have been added to the channel
-        Connection { id, client_tx, server_rx, server_tx, broadcast_rx: broadcast_rx.resubscribe(), self_rx, self_tx }
+        Connection {
+            id, client_tx, server_rx, server_tx,
+            broadcast_rx: broadcast_rx.resubscribe(),
+            self_rx, self_tx: Arc::new(Mutex::new(self_tx)),
+            state
+        }
     }
 
     pub async fn start(&mut self, mut client_rx: tcp::OwnedReadHalf) -> io::Result<()> {
@@ -32,7 +41,7 @@ impl Connection {
         let server_tx = self.server_tx.clone();
         let id = self.id;
 
-        let self_tx = self.self_tx.clone();
+        let self_tx_rc = self.self_tx.clone();
         
         spawn(async move {
             loop {
@@ -46,12 +55,13 @@ impl Connection {
                     break;
                 }
                 // TODO: error handling on from_utf8
-                let s = String::from_utf8(buf.to_vec()).unwrap();
+                let s = String::from_utf8(buf[0..read].to_vec()).unwrap();
                 let res = serde_json::from_str::<Packet>(&s.as_str());
                 match res {
                     Err (e) => log::error!("{}: packet deserialization failed from string {}. Error: {}", id, s, e),
                     Ok (packet) => {
-                        _ = self_tx.send(Message::PacketReceived(packet)).await;
+                        let lock = self_tx_rc.lock().await;
+                        _ = lock.send(Message::PacketReceived(packet)).await;
                     }
                 }
             }
@@ -86,6 +96,7 @@ impl Connection {
 
     async fn dispatch_msg(&mut self, msg: Message) -> io::Result<()> {
         match msg {
+            // global message handling
             Message::Connected(id) => {
                 if id == self.id {
                     // our own connected message.
@@ -97,19 +108,27 @@ impl Connection {
             Message::Disconnected(id) => {
                 self.send_packet(Packet::PlayerDisconnected(id)).await?;
             },
-            Message::PacketReceived(p) => {
-                self.dispatch_packet(p).await?;
+            Message::PacketReceived(ref p) => {
+                self.dispatch_packet(p.clone()).await?;
             },
-            _ => log::warn!("{}: unhandled message received: {:?}", self.id, msg)
+            _ => {
+                // state-specific message handling
+                let rc = self.self_tx.clone();
+                match &self.state {
+                    State::Entry (state) => state.dispatch_msg(rc, msg).await?,
+                }
+            }
         };
+        
         Ok (())
     }
 
     async fn dispatch_packet(&mut self, p: Packet) -> io::Result<()> {
-        match p {
-            Packet::Login(username, password) => log::info!("{}: login requested with username and password: {} {}", self.id, username, password),
-            _ => {}
-        };
+        let rc = self.self_tx.clone();
+        match &self.state {
+            State::Entry (state) => state.dispatch_packet(rc, p).await?,
+        }
+
         Ok (())
     }
 
