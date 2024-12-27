@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tokio::{io::{self, AsyncReadExt, AsyncWriteExt}, net::tcp, spawn, sync::{broadcast, mpsc, watch, Mutex}};
+use tokio::{io::{self, AsyncReadExt, AsyncWriteExt}, net::tcp, spawn, sync::{broadcast, mpsc, Mutex}};
 use uuid::Uuid;
 
 use crate::{messages::Message, packets::Packet, states::{entry::Entry, state::{State, StateHandler}}};
@@ -26,7 +26,7 @@ impl Connection {
         let (self_tx, self_rx) = mpsc::channel(100);
         let state = State::Entry(Entry { conn_id: id });
 
-        // resubscribe since likely some messages have been added to the channel
+        // resubscribe since likely some messages have been added to the channel while accepting connection
         Connection {
             id, client_tx, server_rx, server_tx,
             broadcast_rx: broadcast_rx.resubscribe(),
@@ -36,28 +36,26 @@ impl Connection {
     }
 
     pub async fn start(&mut self, mut client_rx: tcp::OwnedReadHalf) -> io::Result<()> {
-        // fire off read bytes loop
-        let (tx, mut rx) = watch::channel(false);
         let server_tx = self.server_tx.clone();
         let id = self.id;
 
         let self_tx_rc = self.self_tx.clone();
         
-        spawn(async move {
+        // fire off read bytes loop
+        let mut t: tokio::task::JoinHandle<Result<(), io::Error>> = spawn(async move {
             loop {
                 let mut buf = [0u8; 1024];
-                let res = client_rx.read(&mut buf).await;
-                if let Err (_) = res {
-                    break;
-                }
-                let read = res.unwrap();
+                let read = client_rx.read(&mut buf).await?;
                 if read == 0 {
-                    break;
+                    return Ok (());
                 }
-                // TODO: error handling on from_utf8
-                let s = String::from_utf8(buf[0..read].to_vec()).unwrap();
-                let res = serde_json::from_str::<Packet>(&s.as_str());
-                match res {
+                let res = String::from_utf8(buf[0..read].to_vec());
+                if let Err (e) = res {
+                    log::error!("Error reading buffer to utf8 bytes: {}", e);
+                    continue;
+                }
+                let s = res.unwrap();
+                match serde_json::from_str::<Packet>(&s.as_str()) {
                     Err (e) => log::error!("{}: packet deserialization failed from string {}. Error: {}", id, s, e),
                     Ok (packet) => {
                         let lock = self_tx_rc.lock().await;
@@ -65,8 +63,6 @@ impl Connection {
                     }
                 }
             }
-            _ = tx.send(true);
-            _ = server_tx.send(Message::Disconnected(id)).await;
         });
 
         // block on message read loop
@@ -84,13 +80,14 @@ impl Connection {
                     let msg = msg.unwrap();
                     self.dispatch_msg(msg).await?;
                 }
-                _ = rx.changed() => {
+                _ = &mut t => {
                     // socket closed
                     break;
                 }
             }
         }
 
+        _ = server_tx.send(Message::Disconnected(id)).await;
         Ok (())
     }
 

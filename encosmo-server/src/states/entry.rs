@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::{io, sync::{mpsc, Mutex}};
 use uuid::Uuid;
 
-use crate::{connection::Connection, messages::Message, packets::Packet};
+use crate::{messages::Message, packets::Packet};
 
 use super::state::StateHandler;
 
