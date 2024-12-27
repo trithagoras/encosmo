@@ -5,7 +5,7 @@ use uuid::Uuid;
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Packet {
     // client-server
-    Login(String),
+    SetName(String),
     Logout,
 
     // server-client

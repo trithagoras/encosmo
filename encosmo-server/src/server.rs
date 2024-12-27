@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
+use anyhow::Result;
 
-use tokio::{io, net::TcpListener, spawn, sync::{broadcast, mpsc, Mutex}};      // todo: should add a broadcast channel as well
+use tokio::{net::TcpListener, spawn, sync::{broadcast, mpsc, Mutex}};      // todo: should add a broadcast channel as well
 use uuid::Uuid;
 
 use crate::{connection::Connection, messages::Message};
@@ -24,7 +25,7 @@ impl Server {
         }
     }
 
-    pub async fn start(&mut self, port: u16) -> io::Result<()> {
+    pub async fn start(&mut self, port: u16) -> Result<()> {
         let listener = TcpListener::bind(("0.0.0.0", port)).await?;
         log::info!("SERVER: listening on port {}", port);
 
@@ -36,7 +37,10 @@ impl Server {
         spawn(async move {
             loop {
                 let broadcast_rx = broadcast_tx.subscribe();
-                _ = Self::accept_connection(broadcast_rx, server_tx.clone(), connections.clone(), &listener).await;
+                match Self::accept_connection(broadcast_rx, server_tx.clone(), connections.clone(), &listener).await {
+                    Err (e) => log::error!("Error accepting new connection: {}", e),
+                    _ => {}
+                }
             }
         });
 
@@ -44,11 +48,11 @@ impl Server {
         loop {
             let mut lock = server_rx.lock().await;
             let msg = lock.recv().await.unwrap();
-            self.dispatch_msg(msg).await;
+            self.dispatch_msg(msg).await?;
         }
     }
 
-    async fn accept_connection(broadcast_rx: broadcast::Receiver<Message>, server_tx: mpsc::Sender<Message>, connections: Arc<Mutex<HashMap<Uuid, mpsc::Sender<Message>>>>, listener: &TcpListener) -> io::Result<()> {
+    async fn accept_connection(broadcast_rx: broadcast::Receiver<Message>, server_tx: mpsc::Sender<Message>, connections: Arc<Mutex<HashMap<Uuid, mpsc::Sender<Message>>>>, listener: &TcpListener) -> Result<()> {
         let (stream, _) = listener.accept().await?;
         let (client_rx, client_tx) = stream.into_split();
         let id = Uuid::new_v4();
@@ -72,21 +76,22 @@ impl Server {
             connections.lock().await.remove(&id);
         });
 
-        _ = server_tx.send(Message::Connected(id)).await;
+        server_tx.send(Message::Connected(id)).await?;
         log::info!("New connection: {}", id);
 
         Ok (())
     }
 
-    async fn dispatch_msg(&mut self, msg: Message) {
+    async fn dispatch_msg(&mut self, msg: Message) -> Result<()> {
         match msg {
             Message::Connected(_) => {
-                _ = self.broadcast_tx.send(msg);
+                self.broadcast_tx.send(msg)?;
             },
             Message::Disconnected(_) => {
-                _ = self.broadcast_tx.send(msg);
+                self.broadcast_tx.send(msg)?;
             },
             _ => log::warn!("SERVER: Unhandled message received: {:?}", msg)
-        }
+        };
+        Ok (())
     }
 }

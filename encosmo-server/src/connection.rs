@@ -1,6 +1,7 @@
 use std::sync::Arc;
+use anyhow::Result;
 
-use tokio::{io::{self, AsyncReadExt, AsyncWriteExt}, net::tcp, spawn, sync::{broadcast, mpsc, Mutex}};
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::tcp, spawn, sync::{broadcast, mpsc, Mutex}};
 use uuid::Uuid;
 
 use crate::{messages::Message, packets::Packet, states::{entry::Entry, state::{State, StateHandler}}};
@@ -24,25 +25,27 @@ impl Connection {
         };
         let (server_tx, server_rx) = server_chan;
         let (self_tx, self_rx) = mpsc::channel(100);
-        let state = State::Entry(Entry { conn_id: id });
+        let self_tx = Arc::new(Mutex::new(self_tx));
+
+        let state = State::Entry(Entry { conn_id: id, self_tx: self_tx.clone() });
 
         // resubscribe since likely some messages have been added to the channel while accepting connection
         Connection {
             id, client_tx, server_rx, server_tx,
             broadcast_rx: broadcast_rx.resubscribe(),
-            self_rx, self_tx: Arc::new(Mutex::new(self_tx)),
+            self_rx, self_tx,
             state
         }
     }
 
-    pub async fn start(&mut self, mut client_rx: tcp::OwnedReadHalf) -> io::Result<()> {
+    pub async fn start(&mut self, mut client_rx: tcp::OwnedReadHalf) -> Result<()> {
         let server_tx = self.server_tx.clone();
         let id = self.id;
 
         let self_tx_rc = self.self_tx.clone();
         
         // fire off read bytes loop
-        let mut t: tokio::task::JoinHandle<Result<(), io::Error>> = spawn(async move {
+        let mut t: tokio::task::JoinHandle::<Result<()>> = spawn(async move {
             loop {
                 let mut buf = [0u8; 1024];
                 let read = client_rx.read(&mut buf).await?;
@@ -59,7 +62,7 @@ impl Connection {
                     Err (e) => log::error!("{}: packet deserialization failed from string {}. Error: {}", id, s, e),
                     Ok (packet) => {
                         let lock = self_tx_rc.lock().await;
-                        _ = lock.send(Message::PacketReceived(packet)).await;
+                        lock.send(Message::PacketReceived(packet)).await?;
                     }
                 }
             }
@@ -87,11 +90,11 @@ impl Connection {
             }
         }
 
-        _ = server_tx.send(Message::Disconnected(id)).await;
+        server_tx.send(Message::Disconnected(id)).await?;
         Ok (())
     }
 
-    async fn dispatch_msg(&mut self, msg: Message) -> io::Result<()> {
+    async fn dispatch_msg(&mut self, msg: Message) -> Result<()> {
         match msg {
             // global message handling
             Message::Connected(id) => {
@@ -110,9 +113,8 @@ impl Connection {
             },
             _ => {
                 // state-specific message handling
-                let rc = self.self_tx.clone();
                 match &self.state {
-                    State::Entry (state) => state.dispatch_msg(rc, msg).await?,
+                    State::Entry (state) => state.dispatch_msg(msg).await?,
                 }
             }
         };
@@ -120,16 +122,15 @@ impl Connection {
         Ok (())
     }
 
-    async fn dispatch_packet(&mut self, p: Packet) -> io::Result<()> {
-        let rc = self.self_tx.clone();
+    async fn dispatch_packet(&mut self, p: Packet) -> Result<()> {
         match &self.state {
-            State::Entry (state) => state.dispatch_packet(rc, p).await?,
+            State::Entry (state) => state.dispatch_packet(p).await?,
         }
 
         Ok (())
     }
 
-    async fn send_packet(&mut self, packet: Packet) -> io::Result<()> {
+    async fn send_packet(&mut self, packet: Packet) -> Result<()> {
         let s = serde_json::to_string(&packet)?;
         let bytes = s.as_bytes();
         self.client_tx.write(bytes).await?;
