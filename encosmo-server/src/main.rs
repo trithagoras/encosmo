@@ -1,5 +1,5 @@
 use server::Server;
-use std::{env, io};
+use std::env;
 use anyhow::Result;
 
 mod messages;
@@ -7,6 +7,7 @@ mod packets;
 mod states;
 mod server;
 mod connection;
+mod details;
 
 #[tokio::main]
 async fn main() -> Result<()> {

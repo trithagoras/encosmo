@@ -1,28 +1,32 @@
 use std::sync::Arc;
 use anyhow::Result;
-
 use tokio::sync::{mpsc, Mutex};
-use uuid::Uuid;
 
-use crate::{messages::Message, packets::Packet};
+use crate::{details::Details, messages::Message, packets::Packet};
 
 use super::state::StateHandler;
 
 pub struct Entry {
-    pub conn_id: Uuid,
-    pub self_tx: Arc<Mutex<mpsc::Sender<Message>>>
+    pub details: Arc<Mutex<Details>>,
+    pub self_tx: mpsc::Sender<Message>,
+    pub server_tx: mpsc::Sender<Message>
 }
 
 impl StateHandler for Entry {
     async fn dispatch_msg(&self, msg: Message) -> Result<()> {
         match msg {
-            Message::PacketReceived(p) => self.dispatch_packet(p).await?,
-            _ => log::warn!("{}: unhandled message in ENTRY state: {:?}", self.conn_id, msg)
+            Message::PacketReceived(_, p) => self.dispatch_packet(p).await?,
+            Message::NameTaken(_, name) => self.self_tx.send(Message::SendPacket(Packet::NameTaken(name))).await?,
+            Message::SetName(_, name) => {
+                let mut lock = self.details.lock().await;
+                lock.name = Some (name)
+            },
+            _ => log::warn!("{}: unhandled message in ENTRY state: {:?}", self.details.lock().await.id, msg)
         };
         Ok (())
     }
 
-    async fn dispatch_packet(&self, packet: crate::packets::Packet) -> Result<()> {
+    async fn dispatch_packet(&self, packet: Packet) -> Result<()> {
         match packet {
             Packet::SetName(username) => self.try_setname(&username).await,
             _ => Ok (())
@@ -32,7 +36,9 @@ impl StateHandler for Entry {
 
 impl Entry {
     async fn try_setname(&self, name: &str) -> Result<()> {
-        log::info!("{}: login requested with username: {}", self.conn_id, name);
+        let lock = self.details.lock().await;
+        log::info!("{}: has requested to set their name to {}", lock.id, name);
+        self.server_tx.send(Message::SetName(lock.id, name.to_owned())).await?;
         Ok (())
     }
 }

@@ -1,5 +1,4 @@
 use uuid::Uuid;
-
 use crate::packets::Packet;
 
 
@@ -8,5 +7,10 @@ use crate::packets::Packet;
 pub enum Message {
     Connected (Uuid),
     Disconnected (Uuid),
-    PacketReceived (Packet)
+    PacketReceived (Uuid, Packet),
+    SendPacket (Packet),    // immediately send this packet to the client
+    SetName (Uuid, String),
+    GetName,                // asking: "what is your name?"
+    Name (Uuid, String),    // responding: "my name is ..."
+    NameTaken (Uuid, String),
 }
