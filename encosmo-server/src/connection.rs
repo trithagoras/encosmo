@@ -1,19 +1,18 @@
-use std::sync::Arc;
 use anyhow::Result;
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::tcp, spawn, sync::{broadcast, mpsc, Mutex}};
+use log::warn;
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::tcp, spawn, sync::{broadcast, mpsc}};
 use uuid::Uuid;
 use encosmo_shared::Packet;
-use crate::{details::Details, messages::Message, states::{entry::Entry, state::{State, StateHandler}}};
+use crate::messages::Message;
 
 pub struct Connection {
+    id: Uuid,
     client_tx: tcp::OwnedWriteHalf,
     server_rx: mpsc::Receiver<Message>,
     server_tx: mpsc::Sender<Message>,
     broadcast_rx: broadcast::Receiver<Message>,
     self_rx: mpsc::Receiver<Message>,
-    self_tx: mpsc::Sender<Message>,
-    state: State,
-    details: Arc<Mutex<Details>>
+    self_tx: mpsc::Sender<Message>
 }
 
 impl Connection {
@@ -25,22 +24,18 @@ impl Connection {
         let (server_tx, server_rx) = server_chan;
         let (self_tx, self_rx) = mpsc::channel(100);
 
-        let details = Arc::new(Mutex::new(Details { id, name: None }));
-        let state = State::Entry(Entry { details: details.clone(), self_tx: self_tx.clone(), server_tx: server_tx.clone() });
-
-
         // resubscribe since likely some messages have been added to the channel while accepting connection
         Connection {
+            id,
             client_tx, server_rx, server_tx,
             broadcast_rx: broadcast_rx.resubscribe(),
-            self_rx, self_tx,
-            state, details
+            self_rx, self_tx
         }
     }
 
     pub async fn start(&mut self, mut client_rx: tcp::OwnedReadHalf) -> Result<()> {
         let server_tx = self.server_tx.clone();
-        let id = self.details.lock().await.id;
+        let id = self.id;
 
         let self_tx = self.self_tx.clone();
         
@@ -72,15 +67,15 @@ impl Connection {
             tokio::select! {
                 msg = self.server_rx.recv() => {
                     let msg = msg.unwrap();
-                    self.dispatch_msg(msg).await?;
+                    self.process_message(msg).await?;
                 }
                 msg = self.broadcast_rx.recv() => {
                     let msg = msg.unwrap();
-                    self.dispatch_msg(msg).await?;
+                    self.process_message(msg).await?;
                 }
                 msg = self.self_rx.recv() => {
                     let msg = msg.unwrap();
-                    self.dispatch_msg(msg).await?;
+                    self.process_message(msg).await?;
                 }
                 _ = &mut t => {
                     // socket closed
@@ -93,11 +88,11 @@ impl Connection {
         Ok (())
     }
 
-    async fn dispatch_msg(&mut self, msg: Message) -> Result<()> {
+    async fn process_message(&mut self, msg: Message) -> Result<()> {
         match msg {
             // global message handling
             Message::Connected(id) => {
-                if id == self.details.lock().await.id {
+                if id == self.id {
                     // our own connected message.
                     self.send_packet(Packet::Id(id)).await?;
                 } else {
@@ -115,23 +110,24 @@ impl Connection {
             },
             Message::SendPacket(p) => {
                 self.send_packet(p).await?;
-            }
-            _ => {
-                // state-specific message handling
-                match &mut self.state {
-                    State::Entry (state) => state.dispatch_msg(msg).await?,
-                }
-            }
+            },
+            _ => {}
         };
         
         Ok (())
     }
 
     async fn dispatch_packet(&mut self, p: Packet) -> Result<()> {
-        match &mut self.state {
-            State::Entry (state) => state.dispatch_packet(p).await?,
+        match p {
+            Packet::UpdateComponent(_id, comp) => {
+                if _id != self.id {
+                    log::warn!("Connection {} attempted to update a component not belonging to them {}", self.id, _id);
+                    return Ok (())
+                }
+                log::info!("Updating component belonging to {}. Received: {:?}", self.id, comp);
+            },
+            _ => {}
         }
-
         Ok (())
     }
 

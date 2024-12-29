@@ -3,11 +3,10 @@ use std::env;
 use anyhow::Result;
 
 mod messages;
-mod states;
 mod server;
 mod connection;
-mod details;
 mod systems;
+mod entities;
 
 #[tokio::main]
 async fn main() -> Result<()> {

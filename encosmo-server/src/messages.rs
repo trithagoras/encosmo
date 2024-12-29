@@ -2,7 +2,7 @@ use encosmo_shared::Packet;
 use uuid::Uuid;
 
 
-// messages to send between actors, NOT packets to be sent to clients
+/// messages to send between actors, NOT packets to be sent to clients
 #[derive(Clone, Debug)]
 pub enum Message {
     Connected (Uuid),
@@ -13,4 +13,5 @@ pub enum Message {
     GetName,                // asking: "what is your name?"
     Name (Uuid, String),    // responding: "my name is ..."
     NameTaken (Uuid, String),
+    Tick
 }

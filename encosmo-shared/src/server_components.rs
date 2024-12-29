@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use specs::*;
+use uuid::Uuid;
 
 /// Server components are not exclusive to the server as the name might suggest.
 /// Rather, it's used for calculations on the server-side and consumption on the client-side.
@@ -14,6 +15,7 @@ use specs::*;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum ServerComponentKind {
     Position (Position),
+    Translate (Translate)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -33,5 +35,22 @@ pub struct Translate {
 }
 
 impl Component for Translate {
+    type Storage = VecStorage<Self>;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GameObjectDetails {
+    pub name: String,
+    pub description: String
+}
+
+impl Component for GameObjectDetails {
+    type Storage = VecStorage<Self>;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlayerDetails(pub Uuid);
+
+impl Component for PlayerDetails {
     type Storage = VecStorage<Self>;
 }
