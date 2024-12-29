@@ -150,6 +150,7 @@ name = "encosmo-shared"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "specs",
  "uuid",
 ]
 
@@ -555,6 +556,7 @@ dependencies = [
  "log",
  "nougat",
  "rayon",
+ "serde",
  "shred",
  "shrev",
  "specs-derive",

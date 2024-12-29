@@ -1,6 +1,7 @@
 use anyhow::Result;
 use blueprints::create_player;
 use components::*;
+use encosmo_shared::server_components::{Position, Translate};
 use macroquad::prelude::*;
 use specs::{DispatcherBuilder, World, WorldExt};
 use systems::*;
@@ -30,7 +31,7 @@ async fn main() -> Result<()> {
 
     // set up ECS
     let mut world = World::new();
-    world.register::<Pos>();
+    world.register::<Position>();
     world.register::<Translate>();
     world.register::<PlayerInput>();
     world.register::<Render>();

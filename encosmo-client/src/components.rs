@@ -1,26 +1,8 @@
+// Any component in this file is a client-component, meaning it's
+// specific to client-side operation and should never been sent to the server.
+
 use macroquad::prelude::*;
 use specs::prelude::*;
-
-
-#[derive(Debug, Default)]
-pub struct Pos {
-    pub x: i32,
-    pub y: i32
-}
-
-impl Component for Pos {
-    type Storage = VecStorage<Self>;
-}
-
-#[derive(Debug, Default)]
-pub struct Translate {
-    pub dx: i32,
-    pub dy: i32
-}
-
-impl Component for Translate {
-    type Storage = VecStorage<Self>;
-}
 
 pub struct PlayerInput;
 

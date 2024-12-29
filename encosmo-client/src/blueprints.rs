@@ -1,4 +1,5 @@
 use crate::components::*;
+use encosmo_shared::server_components::{Position, Translate};
 use macroquad::prelude::*;
 use specs::{Builder, Entity, World, WorldExt};
 
@@ -6,7 +7,7 @@ pub fn create_player(world: &mut World, game_texture: &Texture2D) -> Entity {
     world
         .create_entity()
         .with(Translate::default())
-        .with(Pos::default())
+        .with(Position::default())
         .with(PlayerInput)
         .with(Render {
             texture: game_texture.clone(),

@@ -1,12 +1,13 @@
 use specs::prelude::*;
 use crate::components::*;
 use macroquad::prelude::*;
+use encosmo_shared::server_components::*;
 
 
 pub struct MoveSystem;
 
 impl<'a> System<'a> for MoveSystem {
-    type SystemData = (WriteStorage<'a, Pos>, ReadStorage<'a, Translate>);
+    type SystemData = (WriteStorage<'a, Position>, ReadStorage<'a, Translate>);
 
     fn run(&mut self, (mut pos, vel): Self::SystemData) {
         for (pos, vel) in (&mut pos, &vel).join() {
@@ -43,7 +44,7 @@ impl<'a> System<'a> for InputSystem {
 
 pub struct RenderSystem;
 impl<'a> System<'a> for RenderSystem {
-    type SystemData = (ReadStorage<'a, Pos>, ReadStorage<'a, Render>);
+    type SystemData = (ReadStorage<'a, Position>, ReadStorage<'a, Render>);
 
     fn run(&mut self, (pos, render): Self::SystemData) {
         for (pos, render) in (&pos, &render).join() {
@@ -58,7 +59,7 @@ impl<'a> System<'a> for RenderSystem {
 
 pub struct FollowCameraSystem;
 impl<'a> System<'a> for FollowCameraSystem {
-    type SystemData = (WriteStorage<'a, FollowCamera>, ReadStorage<'a, Pos>);
+    type SystemData = (WriteStorage<'a, FollowCamera>, ReadStorage<'a, Position>);
 
     fn run(&mut self, (mut cam, pos): Self::SystemData) {
         for (cam, pos) in (&mut cam, &pos).join() {
