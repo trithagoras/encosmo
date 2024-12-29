@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
+use server_components::ServerComponentKind;
 use uuid::Uuid;
 
+pub mod server_components;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone)]
 pub enum Packet {
     // client-server
     SetName (String),
@@ -13,5 +15,6 @@ pub enum Packet {
     PlayerConnected (Uuid),
     PlayerDisconnected (Uuid),
     NameTaken (String),
-    Name (Uuid, String)     // player (id) has set their name to (string)
+    Name (Uuid, String),     // player (id) has set their name to (string)
+    Component (ServerComponentKind)
 }
