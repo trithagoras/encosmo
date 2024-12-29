@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 pub mod server_components;
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Packet {
     // client-server
     SetName (String),
