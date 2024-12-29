@@ -1,0 +1,106 @@
+[
+  {
+    "name": "player",
+    "textureName": "game-tiles.png",
+    "x": 432,
+    "y": 48,
+    "width": 16,
+    "height": 16
+  },
+  {
+    "name": "wall",
+    "textureName": "game-tiles.png",
+    "x": 160,
+    "y": 272,
+    "width": 16,
+    "height": 16
+  },
+  {
+    "name": "water",
+    "textureName": "game-tiles.png",
+    "x": 128,
+    "y": 80,
+    "width": 16,
+    "height": 16
+  },
+  {
+    "name": "gold coin",
+    "textureName": "game-tiles.png",
+    "x": 656,
+    "y": 64,
+    "width": 16,
+    "height": 16
+  },
+  {
+    "name": "empty vial",
+    "textureName": "game-tiles.png",
+    "x": 528,
+    "y": 224,
+    "width": 16,
+    "height": 16
+  },
+  {
+    "name": "down ladder",
+    "textureName": "game-tiles.png",
+    "x": 336,
+    "y": 0,
+    "width": 16,
+    "height": 16
+  },
+  {
+    "name": "up ladder",
+    "textureName": "game-tiles.png",
+    "x": 336,
+    "y": 16,
+    "width": 16,
+    "height": 16
+  },
+  {
+    "name": "ladder icon",
+    "textureName": "game-tiles.png",
+    "x": 336,
+    "y": 16,
+    "width": 16,
+    "height": 16
+  },
+  {
+    "name": "heart icon",
+    "textureName": "game-tiles.png",
+    "x": 672,
+    "y": 160,
+    "width": 16,
+    "height": 16
+  },
+  {
+    "name": "shield icon",
+    "textureName": "game-tiles.png",
+    "x": 640,
+    "y": 64,
+    "width": 16,
+    "height": 16
+  },
+  {
+    "name": "look icon",
+    "textureName": "game-tiles.png",
+    "x": 608,
+    "y": 192,
+    "width": 16,
+    "height": 16
+  },
+  {
+    "name": "exp icon",
+    "textureName": "game-tiles.png",
+    "x": 576,
+    "y": 176,
+    "width": 16,
+    "height": 16
+  },
+  {
+    "name": "mana icon",
+    "textureName": "game-tiles.png",
+    "x": 224,
+    "y": 288,
+    "width": 16,
+    "height": 16
+  }
+]
