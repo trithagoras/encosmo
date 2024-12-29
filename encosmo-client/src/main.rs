@@ -8,8 +8,20 @@ use systems::*;
 mod blueprints;
 mod components;
 mod systems;
+mod constants;
 
-#[macroquad::main("Encosmo")]
+
+fn window_conf() -> Conf {
+    Conf {
+        window_title: "Encosmo".to_owned(),
+        window_width: 960,
+        window_height: 800,
+        icon: Some (constants::icon()),
+        ..Default::default()
+    }
+}
+
+#[macroquad::main(window_conf)]
 async fn main() -> Result<()> {
 
     // load content
