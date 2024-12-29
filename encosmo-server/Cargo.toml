@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+encosmo-shared = { version = "*", path = "../encosmo-shared"}
+
 anyhow = "1.0.95"
 bimap = "0.6.3"
 log = "0.4.22"

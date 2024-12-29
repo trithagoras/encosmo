@@ -1,8 +1,9 @@
 use std::sync::Arc;
 use anyhow::Result;
 use tokio::sync::{mpsc, Mutex};
+use encosmo_shared::Packet;
 
-use crate::{details::Details, messages::Message, packets::Packet};
+use crate::{details::Details, messages::Message};
 
 use super::state::StateHandler;
 

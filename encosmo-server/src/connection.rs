@@ -1,11 +1,9 @@
 use std::sync::Arc;
-
 use anyhow::Result;
-
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::tcp, spawn, sync::{broadcast, mpsc, Mutex}};
 use uuid::Uuid;
-
-use crate::{details::Details, messages::Message, packets::Packet, states::{entry::Entry, state::{State, StateHandler}}};
+use encosmo_shared::Packet;
+use crate::{details::Details, messages::Message, states::{entry::Entry, state::{State, StateHandler}}};
 
 pub struct Connection {
     client_tx: tcp::OwnedWriteHalf,

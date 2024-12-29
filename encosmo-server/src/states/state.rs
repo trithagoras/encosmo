@@ -1,6 +1,7 @@
 
 use anyhow::Result;
-use crate::{messages::Message, packets::Packet};
+use crate::messages::Message;
+use encosmo_shared::Packet;
 
 use super::entry::Entry;
 
