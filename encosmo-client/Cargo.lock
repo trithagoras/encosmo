@@ -143,6 +143,7 @@ dependencies = [
  "macroquad",
  "serde_json",
  "specs",
+ "uuid",
 ]
 
 [[package]]

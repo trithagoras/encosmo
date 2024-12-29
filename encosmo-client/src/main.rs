@@ -1,17 +1,19 @@
 use std::{io::{Read, Write}, net::TcpStream, sync::mpsc, thread::spawn};
 
 use anyhow::Result;
-use blueprints::create_player;
+use entities::create_player;
 use components::*;
 use encosmo_shared::{server_components::{Position, Translate}, Packet};
 use macroquad::prelude::*;
+use resources::ConnectionId;
 use specs::{DispatcherBuilder, World, WorldExt};
 use systems::*;
 
-mod blueprints;
+mod entities;
 mod components;
 mod systems;
 mod constants;
+mod resources;
 
 
 fn window_conf() -> Conf {
@@ -32,31 +34,14 @@ async fn main() -> Result<()> {
     game_texture.set_filter(FilterMode::Nearest);
 
     let mut stream = TcpStream::connect(("127.0.0.1", 42523))?;
-    let mut stream_cpy = stream.try_clone()?;
+    let stream_cpy = stream.try_clone()?;
+
+    // internal packet queue (enqueues from systems)
+    let (packet_tx, packet_rx) = mpsc::channel::<Packet>();
 
     // set up connection to server
-    let (tx, rx) = mpsc::channel::<Packet>();
-    let handle = spawn(move || -> Result<()> {
-        loop {
-            let mut buf = [0u8; 1024];
-            let read = stream_cpy.read(&mut buf)?;
-    
-            let res = String::from_utf8(buf[0..read].into());
-            if let Err (e) = res {
-                eprintln!("Error decoding buffer into string: {}", e);
-                continue;
-            }
-            let str = res.unwrap();
-            let res = serde_json::from_str::<Packet>(&str);
-            if let Err (e) = res {
-                eprintln!("Error converting string into packet: {}", e);
-                continue;
-            }
-            let packet = res.unwrap();
-            tx.send(packet)?;
-        }
-    });
-    
+    let (server_tx, server_rx) = mpsc::channel::<Packet>();
+    let handle = spawn(move || recv_packet_loop(stream_cpy, server_tx));
 
     // set up ECS
     let mut world = World::new();
@@ -66,11 +51,16 @@ async fn main() -> Result<()> {
     world.register::<Render>();
     world.register::<FollowCamera>();
 
+    // adding resources
+    world.insert(ConnectionId::default());
+
     create_player(&mut world, &game_texture);
 
     // with_thread_local means the systems are run sequentually, so order matters
     let mut dispatcher = DispatcherBuilder::new()
-        .with_thread_local(InputSystem)
+        .with_thread_local(InputSystem {
+            packet_tx: packet_tx.clone()
+        })
         .with_thread_local(MoveSystem)
         .with_thread_local(FollowCameraSystem)  // e.g. have camera follow run AFTER move system for late-update
         .with_thread_local(RenderSystem)
@@ -90,13 +80,18 @@ async fn main() -> Result<()> {
         clear_background(BLACK);
 
         // read packets
-        while let Ok (packet) = rx.try_recv() {
-            dispatch_packet(packet.clone())?;
+        while let Ok (packet) = server_rx.try_recv() {
+            process_packet(packet.clone(), &mut world)?;
         }
 
         // Run systems
         dispatcher.dispatch(&mut world);
         world.maintain();
+
+        // send any outgoing packets
+        while let Ok (packet) = packet_rx.try_recv() {
+            send_packet(&mut stream, packet)?;
+        }
 
         draw_text("text", 32., 32., 32., YELLOW);
 
@@ -105,13 +100,49 @@ async fn main() -> Result<()> {
     }
 }
 
-fn dispatch_packet(p: Packet) -> Result<()> {
+fn recv_packet_loop(mut stream: TcpStream, tx: mpsc::Sender<Packet>) -> Result<()> {
+    loop {
+        let mut buf = [0u8; 1024];
+        let read = stream.read(&mut buf)?;
+        if read == 0 {
+            // connection closed
+            return Ok (());
+        }
+
+        let res = String::from_utf8(buf[0..read].into());
+        if let Err (e) = res {
+            eprintln!("Error decoding buffer into string: {}", e);
+            continue;
+        }
+        let str = res.unwrap();
+        let res = serde_json::from_str::<Packet>(&str);
+        if let Err (e) = res {
+            eprintln!("Error converting string into packet: {}", e);
+            continue;
+        }
+        let packet = res.unwrap();
+        tx.send(packet)?;
+    }
+}
+
+fn process_packet(p: Packet, world: &mut World) -> Result<()> {
     match p {
-        Packet::Id(id) => println!("Your ID has been set to {}", id),
+        Packet::Id(_id) => {
+            let mut connection_id = world.write_resource::<ConnectionId>();
+            connection_id.0 = _id;
+            println!("Your ID has been set to {}", _id);
+        },
         Packet::PlayerConnected(id) => println!("A new player has connected: {}", id),
         Packet::PlayerDisconnected(id) => println!("Player has disconnected: {}", id),
         Packet::Name(id, name) => println!("Player with id {} has set their name to {}", id, name),
         p => println!("Received unhandled packet: {:?}", p)
     }
+    Ok (())
+}
+
+fn send_packet(stream: &mut TcpStream, p: Packet) -> Result<()> {
+    let str = serde_json::to_string(&p)?;
+    let bs = str.as_bytes();
+    stream.write(&bs)?;
     Ok (())
 }

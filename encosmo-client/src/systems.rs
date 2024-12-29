@@ -1,7 +1,9 @@
+use std::sync::mpsc;
+
 use specs::prelude::*;
-use crate::components::*;
+use crate::{components::*, resources::ConnectionId};
 use macroquad::prelude::*;
-use encosmo_shared::server_components::*;
+use encosmo_shared::{server_components::*, Packet};
 
 
 pub struct MoveSystem;
@@ -17,12 +19,18 @@ impl<'a> System<'a> for MoveSystem {
     }
 }
 
-pub struct InputSystem;
+pub struct InputSystem {
+    pub packet_tx: mpsc::Sender<Packet>
+}
 
 impl<'a> System<'a> for InputSystem {
-    type SystemData = (WriteStorage<'a, Translate>, ReadStorage<'a, PlayerInput>);
+    type SystemData = (
+        WriteStorage<'a, Translate>,
+        ReadStorage<'a, PlayerInput>,
+        Read<'a, ConnectionId>
+    );
 
-    fn run(&mut self, (mut vel, inp): Self::SystemData) {
+    fn run(&mut self, (mut vel, inp, id): Self::SystemData) {
         for (vel, _) in (&mut vel, &inp).join() {
             vel.dx = 0;
             vel.dy = 0;
@@ -37,6 +45,11 @@ impl<'a> System<'a> for InputSystem {
             }
             else if is_key_pressed(KeyCode::Right) {
                 vel.dx += 16;
+            }
+
+            if vel.dx != 0 || vel.dy != 0 {
+                let packet = Packet::UpdateComponent(id.0, ServerComponentKind::Translate(vel.clone()));
+                _ = self.packet_tx.send(packet);
             }
         }
     }
