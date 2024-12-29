@@ -7,6 +7,7 @@ mod states;
 mod server;
 mod connection;
 mod details;
+mod systems;
 
 #[tokio::main]
 async fn main() -> Result<()> {

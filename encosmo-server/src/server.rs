@@ -2,10 +2,12 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::Result;
 
 use bimap::BiMap;
+use encosmo_shared::server_components::*;
+use specs::prelude::*;
 use tokio::{net::TcpListener, spawn, sync::{broadcast, mpsc, Mutex}};
 use uuid::Uuid;
 
-use crate::{connection::Connection, messages::Message};
+use crate::{connection::Connection, messages::Message, systems::*};
 
 pub struct Server {
     connections: Arc<Mutex<HashMap<Uuid, mpsc::Sender<Message>>>>,
@@ -32,12 +34,23 @@ impl Server {
         let listener = TcpListener::bind(("0.0.0.0", port)).await?;
         log::info!("SERVER: listening on port {}", port);
 
+        // set up ECS
+        let mut world = World::new();
+        world.register::<Position>();
+        world.register::<Translate>();
+
+        // create_player(&mut world, &game_texture);
+
+        let mut dispatcher = DispatcherBuilder::new()
+            .with_thread_local(MoveSystem)
+            .build();
+
         let broadcast_tx = self.broadcast_tx.clone();
         let server_tx = self.server_tx.clone();
         let connections = self.connections.clone();
         let player_names = self.player_names.clone();
 
-        // fire off accept loop then block on receive message loop
+        // fire off accept loop
         spawn(async move {
             loop {
                 let broadcast_rx = broadcast_tx.subscribe();
