@@ -18,6 +18,10 @@ pub enum ServerComponentKind {
     Translate (Translate)
 }
 
+pub trait UpdatableComponent: Send + Sync + Clone + Component {
+    fn update_component(&mut self, new_component: &Self);
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Position {
     pub x: i32,
@@ -36,6 +40,12 @@ pub struct Translate {
 
 impl Component for Translate {
     type Storage = VecStorage<Self>;
+}
+
+impl UpdatableComponent for Translate {
+    fn update_component(&mut self, new_component: &Self) {
+        *self = new_component.clone();
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -50,11 +50,10 @@ async fn main() -> Result<()> {
     world.register::<PlayerInput>();
     world.register::<Render>();
     world.register::<FollowCamera>();
+    world.register::<ServerEntityId>();
 
     // adding resources
     world.insert(ConnectionId::default());
-
-    create_player(&mut world, &game_texture);
 
     // with_thread_local means the systems are run sequentually, so order matters
     let mut dispatcher = DispatcherBuilder::new()
@@ -81,7 +80,7 @@ async fn main() -> Result<()> {
 
         // read packets
         while let Ok (packet) = server_rx.try_recv() {
-            process_packet(packet.clone(), &mut world)?;
+            process_packet(packet.clone(), &mut world, &game_texture)?;
         }
 
         // Run systems
@@ -125,7 +124,7 @@ fn recv_packet_loop(mut stream: TcpStream, tx: mpsc::Sender<Packet>) -> Result<(
     }
 }
 
-fn process_packet(p: Packet, world: &mut World) -> Result<()> {
+fn process_packet(p: Packet, world: &mut World, game_texture: &Texture2D) -> Result<()> {
     match p {
         Packet::Id(_id) => {
             let mut connection_id = world.write_resource::<ConnectionId>();
@@ -135,6 +134,15 @@ fn process_packet(p: Packet, world: &mut World) -> Result<()> {
         Packet::PlayerConnected(id) => println!("A new player has connected: {}", id),
         Packet::PlayerDisconnected(id) => println!("Player has disconnected: {}", id),
         Packet::Name(id, name) => println!("Player with id {} has set their name to {}", id, name),
+        Packet::UpdateComponent(eid, kind) => {
+            println!("Updating component {:?} for entity with id: {}", kind, eid);
+        },
+        Packet::PlayerEntityId(id, eid) => {
+            let my_id = world.read_resource::<ConnectionId>().0;
+            if id == my_id {
+                create_player(world, game_texture, eid);
+            }
+        }
         p => println!("Received unhandled packet: {:?}", p)
     }
     Ok (())

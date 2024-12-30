@@ -14,7 +14,8 @@ pub enum Packet {
     Id (Uuid),
     PlayerConnected (Uuid),
     PlayerDisconnected (Uuid),
+    PlayerEntityId (Uuid, u32),
     Name (Uuid, String),     // player (id) has set their name to (string)
-    // TODO: make a packet to update many components simultaneously. e.g. [(UUID, ServerComponentKind)]
-    UpdateComponent (Uuid, ServerComponentKind),     // update component belonging to entity with id {id}
+    UpdateComponent (u32, ServerComponentKind),     // update component belonging to entity with id {id}
+    UpsertEntity (u32, Vec<ServerComponentKind>),   // either creates new entity or updates existing entity
 }

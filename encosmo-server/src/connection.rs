@@ -8,6 +8,7 @@ use crate::messages::Message;
 
 pub struct Connection {
     id: Uuid,
+    entity_id: u32,
     client_tx: tcp::OwnedWriteHalf,
     server_rx: mpsc::Receiver<Message>,
     server_tx: mpsc::Sender<Message>,
@@ -19,7 +20,7 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub fn new(id: Uuid, client_tx: tcp::OwnedWriteHalf, server_chan: (mpsc::Sender<Message>, mpsc::Receiver<Message>), broadcast_rx: broadcast::Receiver<Message>) -> Connection {
+    pub fn new(id: Uuid, entity_id: u32, client_tx: tcp::OwnedWriteHalf, server_chan: (mpsc::Sender<Message>, mpsc::Receiver<Message>), broadcast_rx: broadcast::Receiver<Message>) -> Connection {
         let (server_tx, server_rx) = server_chan;
         let (self_tx, self_rx) = mpsc::channel(100);
         let (outbox_tx, outbox_rx) = mpsc::channel(100);
@@ -28,6 +29,7 @@ impl Connection {
         // resubscribe since likely some messages have been added to the channel while accepting connection
         Connection {
             id,
+            entity_id,
             client_tx, server_rx, server_tx,
             broadcast_rx: broadcast_rx.resubscribe(),
             self_rx, self_tx,
@@ -84,7 +86,8 @@ impl Connection {
                 }
             },
             Message::PlayerDisconnected(id) => self.outbox_tx.send(Packet::PlayerDisconnected(id)).await?,
-            Message::ReceivePacket(p) => self.process_packet(p).await?
+            Message::Packet(p) => self.process_packet(p).await?,
+            _ => {}
         }
         Ok (())
     }
@@ -100,12 +103,13 @@ impl Connection {
 
     async fn process_packet(&mut self, p: Packet) -> Result<()> {
         match p {
-            Packet::UpdateComponent(id, comp) => {
-                if id != self.id {
-                    log::warn!("Client {} attempted to update component {:?} that doesn't belong to them: {}", self.id, comp, id);
+            Packet::UpdateComponent(eid, ref comp) => {
+                if eid != self.entity_id {
+                    log::warn!("Client {} attempted to update component {:?} that doesn't belong to them: {}", self.id, comp, eid);
                 } else {
                     // TODO: send this packet to the server for further processing. Remove placeholder below.
-                    log::info!("Client {} has updated their component to {:?}", id, comp);
+                    log::info!("Client {} has updated their component to {:?}", self.id, comp);
+                    self.server_tx.send(Message::Packet(p)).await?;
                 }
             }
             _ => {}
@@ -130,7 +134,7 @@ async fn recv_packet_loop(mut client_rx: OwnedReadHalf, self_tx: mpsc::Sender<Me
         match serde_json::from_str::<Packet>(&s.as_str()) {
             Err (e) => log::error!("Packet deserialization failed from string {}. Error: {}", s, e),
             Ok (packet) => {
-                self_tx.send(Message::ReceivePacket(packet)).await?;
+                self_tx.send(Message::Packet(packet)).await?;
             }
         }
     }

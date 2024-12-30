@@ -1,7 +1,7 @@
 use std::sync::mpsc;
 
 use specs::prelude::*;
-use crate::{components::*, resources::ConnectionId};
+use crate::components::*;
 use macroquad::prelude::*;
 use encosmo_shared::{server_components::*, Packet};
 
@@ -27,11 +27,11 @@ impl<'a> System<'a> for InputSystem {
     type SystemData = (
         WriteStorage<'a, Translate>,
         ReadStorage<'a, PlayerInput>,
-        Read<'a, ConnectionId>
+        ReadStorage<'a, ServerEntityId>
     );
 
     fn run(&mut self, (mut vel, inp, id): Self::SystemData) {
-        for (vel, _) in (&mut vel, &inp).join() {
+        for (vel, _, id) in (&mut vel, &inp, &id).join() {
             vel.dx = 0;
             vel.dy = 0;
             if is_key_pressed(KeyCode::Up) {

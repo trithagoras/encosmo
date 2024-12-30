@@ -7,6 +7,7 @@ mod server;
 mod connection;
 mod systems;
 mod entities;
+mod resources;
 
 #[tokio::main]
 async fn main() -> Result<()> {

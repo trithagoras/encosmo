@@ -3,7 +3,7 @@ use encosmo_shared::server_components::{Position, Translate};
 use macroquad::prelude::*;
 use specs::{Builder, Entity, World, WorldExt};
 
-pub fn create_player(world: &mut World, game_texture: &Texture2D) -> Entity {
+pub fn create_player(world: &mut World, game_texture: &Texture2D, eid: u32) -> Entity {
     world
         .create_entity()
         .with(Translate::default())
@@ -19,5 +19,6 @@ pub fn create_player(world: &mut World, game_texture: &Texture2D) -> Entity {
                 ..Default::default()
             }
         })
+        .with(ServerEntityId(eid))
         .build()
 }

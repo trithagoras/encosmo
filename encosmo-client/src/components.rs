@@ -5,7 +5,6 @@ use macroquad::prelude::*;
 use specs::prelude::*;
 
 pub struct PlayerInput;
-
 impl Component for PlayerInput {
     type Storage = VecStorage<Self>;
 }
@@ -14,7 +13,6 @@ pub struct Render {
     pub texture: Texture2D,
     pub source: Rect
 }
-
 impl Component for Render {
     type Storage = VecStorage<Self>;
 }
@@ -22,7 +20,11 @@ impl Component for Render {
 pub struct FollowCamera {
     pub camera: Camera2D
 }
-
 impl Component for FollowCamera {
+    type Storage = VecStorage<Self>;
+}
+
+pub struct ServerEntityId(pub u32);
+impl Component for ServerEntityId {
     type Storage = VecStorage<Self>;
 }
