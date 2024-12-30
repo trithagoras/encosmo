@@ -9,7 +9,7 @@
             "type": "cppvsdbg",
             "request": "launch",
             "program": "${workspaceRoot}/target/debug/encosmo-server.exe",
-            "args": ["42523"],
+            "args": ["42523", "2"],
             "stopAtEntry": false,
             "cwd": "${workspaceRoot}",
             "environment": [],

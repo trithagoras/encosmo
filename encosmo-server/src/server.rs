@@ -3,7 +3,7 @@ use anyhow::Result;
 
 use encosmo_shared::server_components::*;
 use specs::prelude::*;
-use tokio::{net::TcpListener, spawn, sync::{broadcast, mpsc, Mutex}, time::sleep};
+use tokio::{net::TcpListener, spawn, sync::{broadcast, mpsc, Mutex}, time::{sleep, Instant}};
 use uuid::Uuid;
 
 use crate::{connection::Connection, entities::create_player, messages::Message, systems::*};
@@ -17,12 +17,12 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new() -> Self {
+    pub fn new(tick_rate: u8) -> Self {
         let (broadcast_tx, _) = broadcast::channel(100);
         let (server_tx, server_rx) = mpsc::channel(100);
         Server {
             connections: Arc::new(Mutex::new(HashMap::new())),
-            tick_rate: 1,
+            tick_rate,
             broadcast_tx,
             server_tx,
             server_rx
@@ -65,9 +65,23 @@ impl Server {
 
         // tick loop
         let sleep_time = 1. / self.tick_rate as f64;
+
         loop {
-            sleep(Duration::from_secs_f64(sleep_time)).await;
+            // restart timer
+            let start_time = Instant::now();
+
             self.tick(world.clone(), &mut dispatcher).await?;
+
+            // get elapsed time
+            let elapsed_time = start_time.elapsed();
+            let sleep_duration = Duration::from_secs_f64(sleep_time).saturating_sub(elapsed_time);
+
+            if sleep_duration.is_zero() {
+                log::warn!("Time taken to tick exceeded expected time. Time taken was {:?}", elapsed_time);
+            } else {
+                // sleep for remaining time
+                sleep(sleep_duration).await;
+            }
         }
     }
 

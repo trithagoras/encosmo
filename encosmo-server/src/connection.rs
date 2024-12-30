@@ -91,11 +91,9 @@ impl Connection {
 
     async fn tick(&mut self) -> Result<()> {
         // send packets to client
-        {
-            let mut lock = self.outbox_rx.lock().await;
-            while let Ok (p) = lock.try_recv() {
-                send_packet(&mut self.client_tx, p).await?;
-            }
+        let mut lock = self.outbox_rx.lock().await;
+        while let Ok (p) = lock.try_recv() {
+            send_packet(&mut self.client_tx, p).await?;
         }
         Ok (())
     }

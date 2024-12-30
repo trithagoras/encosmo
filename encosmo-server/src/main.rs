@@ -18,6 +18,11 @@ async fn main() -> Result<()> {
         Some (p) => p.parse()?
     };
 
-    let mut server = Server::new();
+    let tick_rate: u8 = match env::args().nth(2) {
+        None => 2,
+        Some (tr) => tr.parse()?
+    };
+
+    let mut server = Server::new(tick_rate);
     server.start(port).await
 }
