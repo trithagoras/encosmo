@@ -8,31 +8,24 @@ use uuid::Uuid;
 
 use crate::{connection::Connection, entities::create_player, messages::Message, systems::*};
 
-struct ServerChannels {
-    broadcast_tx: broadcast::Sender<Message>,
-    server_tx: mpsc::Sender<Message>,
-    server_rx: Arc<Mutex<mpsc::Receiver<Message>>>,
-}
-
 pub struct Server {
     connections: Arc<Mutex<HashMap<Uuid, mpsc::Sender<Message>>>>,
     tick_rate: u8,
-    channels: ServerChannels
+    broadcast_tx: broadcast::Sender<Message>,
+    server_tx: mpsc::Sender<Message>,
+    server_rx: mpsc::Receiver<Message>,
 }
 
 impl Server {
     pub fn new() -> Self {
         let (broadcast_tx, _) = broadcast::channel(100);
         let (server_tx, server_rx) = mpsc::channel(100);
-        let channels = ServerChannels {
-            broadcast_tx,
-            server_tx,
-            server_rx: Arc::new(Mutex::new(server_rx))
-        };
         Server {
             connections: Arc::new(Mutex::new(HashMap::new())),
             tick_rate: 1,
-            channels
+            broadcast_tx,
+            server_tx,
+            server_rx
         }
     }
 
@@ -54,8 +47,8 @@ impl Server {
             .with_thread_local(MoveSystem)
             .build();
     
-        let broadcast_tx = self.channels.broadcast_tx.clone();
-        let server_tx = self.channels.server_tx.clone();
+        let broadcast_tx = self.broadcast_tx.clone();
+        let server_tx = self.server_tx.clone();
         let connections = self.connections.clone();
         let world_cpy = world.clone();
     
@@ -69,42 +62,45 @@ impl Server {
                 }
             }
         });
-    
-        let server_rx = self.channels.server_rx.clone();
-        let broadcast_tx = self.channels.broadcast_tx.clone();
-        let connections = self.connections.clone();
-    
-        // fire off message recv loop
-        let _: tokio::task::JoinHandle::<Result<()>> = spawn(async move {
-            loop {
-                let mut lock = server_rx.lock().await;
-                let msg = lock.recv().await.unwrap();
-                dispatch_msg(msg, &connections, &broadcast_tx).await?;
-            }
-        });
-    
+
         // tick loop
         let sleep_time = 1. / self.tick_rate as f64;
         loop {
             sleep(Duration::from_secs_f64(sleep_time)).await;
-            tick(self, world.clone(), &mut dispatcher).await?;
+            self.tick(world.clone(), &mut dispatcher).await?;
         }
     }
-}
 
+    async fn tick(&mut self, world: Arc<Mutex<World>>, dispatcher: &mut Dispatcher<'_, '_>) -> Result<()> {
+        log::debug!("tick");
 
-async fn tick(server: &Server, world: Arc<Mutex<World>>, dispatcher: &mut Dispatcher<'_, '_>) -> Result<()> {
-    log::debug!("tick");
+        // check if there are any messages to process
+        while let Ok (msg) = self.server_rx.try_recv() {
+            self.process_message(msg).await?;
+        }
+    
+        // run all our systems
+        {
+            let mut lock = world.lock().await;
+            dispatcher.dispatch(&lock);
+            lock.maintain();
+        }
+        
+        // send all packets from each connection's outbox
+        self.broadcast_tx.send(Message::Tick)?;
+        Ok (())
+    }
 
-    // signal to all connections it's time to tick
-    server.channels.broadcast_tx.send(Message::Tick)?;
+    async fn process_message(&mut self, msg: Message) -> Result<()> {
+        match msg {
+            Message::PlayerConnected(_) | Message::PlayerDisconnected(_) => {
+                self.broadcast_tx.send(msg)?;
+            },
+            _ => {}
+        }
 
-    // run all our systems
-    let mut lock = world.lock().await;
-    dispatcher.dispatch(&lock);
-    lock.maintain();
-
-    Ok (())
+        Ok (())
+    }
 }
 
 async fn accept_connection(
@@ -120,7 +116,7 @@ async fn accept_connection(
     let (conn_tx, conn_rx) = mpsc::channel(100);
     let chan = (server_tx.clone(), conn_rx);
 
-    let mut connection = Connection::new(Some(id), client_tx, chan, broadcast_rx);
+    let mut connection = Connection::new(id, client_tx, chan, broadcast_rx);
 
 
     // limiting lifetime of each lock
@@ -130,7 +126,7 @@ async fn accept_connection(
     }
 
     {
-        // TODO: we are adding player to world here, but never deleting them
+        // TODO: we are adding player to world here, but never deleting them.
         let mut lock = world.lock().await;
         create_player(&mut lock, id);
     }
@@ -147,25 +143,8 @@ async fn accept_connection(
         connections.lock().await.remove(&id);
     });
 
-    server_tx.send(Message::Connected(id)).await?;
+    server_tx.send(Message::PlayerConnected(id)).await?;
     log::info!("New connection: {}", id);
 
-    Ok (())
-}
-
-async fn dispatch_msg(
-    msg: Message,
-    connections: &Arc<Mutex<HashMap<Uuid, mpsc::Sender<Message>>>>,
-    broadcast_tx: &broadcast::Sender<Message>
-) -> Result<()> {
-    match msg {
-        Message::Connected(_) => {
-            broadcast_tx.send(msg)?;
-        },
-        Message::Disconnected(_) => {
-            broadcast_tx.send(msg)?;
-        },
-        _ => log::warn!("SERVER: Unhandled message received: {:?}", msg)
-    };
     Ok (())
 }

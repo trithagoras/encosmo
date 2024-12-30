@@ -1,6 +1,7 @@
+use std::sync::Arc;
+
 use anyhow::Result;
-use log::warn;
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::tcp, spawn, sync::{broadcast, mpsc}};
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::tcp::{self, OwnedReadHalf}, spawn, sync::{broadcast, mpsc, Mutex}};
 use uuid::Uuid;
 use encosmo_shared::Packet;
 use crate::messages::Message;
@@ -12,55 +13,36 @@ pub struct Connection {
     server_tx: mpsc::Sender<Message>,
     broadcast_rx: broadcast::Receiver<Message>,
     self_rx: mpsc::Receiver<Message>,
-    self_tx: mpsc::Sender<Message>
+    self_tx: mpsc::Sender<Message>,
+    outbox_tx: mpsc::Sender<Packet>,
+    outbox_rx: Arc<Mutex<mpsc::Receiver<Packet>>>
 }
 
 impl Connection {
-    pub fn new(id: Option<Uuid>, client_tx: tcp::OwnedWriteHalf, server_chan: (mpsc::Sender<Message>, mpsc::Receiver<Message>), broadcast_rx: broadcast::Receiver<Message>) -> Connection {
-        let id = match id {
-            Some (id) => id,
-            None => Uuid::new_v4()
-        };
+    pub fn new(id: Uuid, client_tx: tcp::OwnedWriteHalf, server_chan: (mpsc::Sender<Message>, mpsc::Receiver<Message>), broadcast_rx: broadcast::Receiver<Message>) -> Connection {
         let (server_tx, server_rx) = server_chan;
         let (self_tx, self_rx) = mpsc::channel(100);
+        let (outbox_tx, outbox_rx) = mpsc::channel(100);
+        let outbox_rx = Arc::new(Mutex::new(outbox_rx));
 
         // resubscribe since likely some messages have been added to the channel while accepting connection
         Connection {
             id,
             client_tx, server_rx, server_tx,
             broadcast_rx: broadcast_rx.resubscribe(),
-            self_rx, self_tx
+            self_rx, self_tx,
+            outbox_tx, outbox_rx
         }
     }
 
-    pub async fn start(&mut self, mut client_rx: tcp::OwnedReadHalf) -> Result<()> {
+    pub async fn start(&mut self, client_rx: tcp::OwnedReadHalf) -> Result<()> {
         let server_tx = self.server_tx.clone();
         let id = self.id;
 
         let self_tx = self.self_tx.clone();
         
         // fire off read bytes loop
-        let mut t: tokio::task::JoinHandle::<Result<()>> = spawn(async move {
-            loop {
-                let mut buf = [0u8; 1024];
-                let read = client_rx.read(&mut buf).await?;
-                if read == 0 {
-                    return Ok (());
-                }
-                let res = String::from_utf8(buf[0..read].to_vec());
-                if let Err (e) = res {
-                    log::error!("Error reading buffer to utf8 bytes: {}", e);
-                    continue;
-                }
-                let s = res.unwrap();
-                match serde_json::from_str::<Packet>(&s.as_str()) {
-                    Err (e) => log::error!("{}: packet deserialization failed from string {}. Error: {}", id, s, e),
-                    Ok (packet) => {
-                        self_tx.send(Message::PacketReceived(id, packet)).await?;
-                    }
-                }
-            }
-        });
+        let mut t = spawn(recv_packet_loop(client_rx, self_tx));
 
         // block on message read loop
         loop {
@@ -84,57 +66,81 @@ impl Connection {
             }
         }
 
-        server_tx.send(Message::Disconnected(id)).await?;
+        // loop finished indicates connection closed
+        server_tx.send(Message::PlayerDisconnected(id)).await?;
         Ok (())
     }
 
     async fn process_message(&mut self, msg: Message) -> Result<()> {
         match msg {
-            // global message handling
-            Message::Connected(id) => {
+            Message::Tick => self.tick().await?,
+            Message::SendPacket(p) => self.outbox_tx.send(p).await?,
+            Message::PlayerConnected(id) => {
                 if id == self.id {
-                    // our own connected message.
-                    self.send_packet(Packet::Id(id)).await?;
-                } else {
-                    self.send_packet(Packet::PlayerConnected(id)).await?;
+                    self.outbox_tx.send(Packet::Id(id)).await?;
+                }
+                else {
+                    self.outbox_tx.send(Packet::PlayerConnected(id)).await?;
                 }
             },
-            Message::Disconnected(id) => {
-                self.send_packet(Packet::PlayerDisconnected(id)).await?;
-            },
-            Message::PacketReceived(_, ref p) => {
-                self.dispatch_packet(p.clone()).await?;
-            },
-            Message::Name(id, name) => {
-                self.send_packet(Packet::Name(id, name)).await?;
-            },
-            Message::SendPacket(p) => {
-                self.send_packet(p).await?;
-            },
-            _ => {}
-        };
-        
-        Ok (())
-    }
-
-    async fn dispatch_packet(&mut self, p: Packet) -> Result<()> {
-        match p {
-            Packet::UpdateComponent(_id, comp) => {
-                if _id != self.id {
-                    log::warn!("Connection {} attempted to update a component not belonging to them {}", self.id, _id);
-                    return Ok (())
-                }
-                log::info!("Updating component belonging to {}. Received: {:?}", self.id, comp);
-            },
-            _ => {}
+            Message::PlayerDisconnected(id) => self.outbox_tx.send(Packet::PlayerDisconnected(id)).await?,
+            Message::ReceivePacket(p) => self.process_packet(p).await?
         }
         Ok (())
     }
 
-    async fn send_packet(&mut self, packet: Packet) -> Result<()> {
-        let s = serde_json::to_string(&packet)?;
-        let bytes = s.as_bytes();
-        self.client_tx.write(bytes).await?;
+    async fn tick(&mut self) -> Result<()> {
+        // send packets to client
+        {
+            let mut lock = self.outbox_rx.lock().await;
+            while let Ok (p) = lock.try_recv() {
+                send_packet(&mut self.client_tx, p).await?;
+            }
+        }
         Ok (())
     }
+
+    async fn process_packet(&mut self, p: Packet) -> Result<()> {
+        match p {
+            Packet::UpdateComponent(id, comp) => {
+                if id != self.id {
+                    log::warn!("Client {} attempted to update component {:?} that doesn't belong to them: {}", self.id, comp, id);
+                } else {
+                    // TODO: send this packet to the server for further processing. Remove placeholder below.
+                    log::info!("Client {} has updated their component to {:?}", id, comp);
+                }
+            }
+            _ => {}
+        }
+        Ok (())
+    }
+}
+
+async fn recv_packet_loop(mut client_rx: OwnedReadHalf, self_tx: mpsc::Sender<Message>) -> Result<()> {
+    loop {
+        let mut buf = [0u8; 1024];
+        let read = client_rx.read(&mut buf).await?;
+        if read == 0 {
+            return Ok (());
+        }
+        let res = String::from_utf8(buf[0..read].to_vec());
+        if let Err (e) = res {
+            log::error!("Error reading buffer to utf8 bytes: {}", e);
+            continue;
+        }
+        let s = res.unwrap();
+        match serde_json::from_str::<Packet>(&s.as_str()) {
+            Err (e) => log::error!("Packet deserialization failed from string {}. Error: {}", s, e),
+            Ok (packet) => {
+                self_tx.send(Message::ReceivePacket(packet)).await?;
+            }
+        }
+    }
+}
+
+async fn send_packet(client_tx: &mut tcp::OwnedWriteHalf, packet: Packet) -> Result<()> {
+    let s = serde_json::to_string(&packet)?;
+    let bytes = s.as_bytes();
+    client_tx.write(bytes).await?;
+    Ok (())
 }
